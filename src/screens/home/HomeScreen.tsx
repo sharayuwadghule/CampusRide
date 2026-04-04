@@ -13,32 +13,98 @@ import { theme } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../services/AuthContext';
+import { supabase } from '../../services/supabase';
+import { useState, useEffect } from 'react';
+import * as Location from 'expo-location';
+import { Alert } from 'react-native';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
-const RECENT_RIDES = [
-  {
-    id: '1',
-    name: 'Rahul Sharma',
-    initials: 'RS',
-    route: 'Main Gate → Engineering Block',
-    time: 'Today, 10:45 AM',
-    fare: '₹31',
-    rating: 4.8,
-  },
-  {
-    id: '2',
-    name: 'Priya Kapur',
-    initials: 'PK',
-    route: 'Hostel → Library',
-    time: 'Yesterday, 4:20 PM',
-    fare: '₹22',
-    rating: 4.9,
-  },
-];
-
 export default function HomeScreen() {
   const navigation = useNavigation<NavProp>();
+  const { session } = useAuth();
+  const [profile, setProfile] = useState<any>(null);
+  const [rides, setRides] = useState<any[]>([]);
+
+  const [stats, setStats] = useState({ totalRides: 0, rating: 4.8, saved: 0 });
+
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      if (!session?.user?.id) return;
+      
+      try {
+        // Fetch Profile
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('full_name, role')
+          .eq('id', session.user.id)
+          .single();
+        if (prof) setProfile(prof);
+
+        // Fetch ride counts
+        const { count: riderCount } = await supabase
+          .from('rides')
+          .select('*', { count: 'exact', head: true })
+          .eq('driver_id', session.user.id);
+
+        const { count: requestCount } = await supabase
+          .from('ride_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('passenger_id', session.user.id)
+          .eq('status', 'accepted');
+
+        const total = (riderCount || 0) + (requestCount || 0);
+        setStats(prev => ({
+          ...prev,
+          totalRides: total,
+          saved: (requestCount || 0) * 25,
+        }));
+
+        // Fetch active rides (global feed)
+        const { data: recentRides } = await supabase
+          .from('rides')
+          .select('*, profiles(full_name)')
+          .limit(5)
+          .order('created_at', { ascending: false });
+          
+        if (recentRides) setRides(recentRides);
+      } catch (err) {
+        console.error('Error fetching home data:', err);
+      }
+    };
+
+    fetchHomeData();
+  }, [session]);
+
+  const handleLeaveNow = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Location permission is required for "Leave Now"');
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({});
+      // For MVP, we'll suggest a common destination since we don't know where they are going
+      // or just jump to OfferRide with "Current Location" filled in.
+      navigation.navigate('OfferRide', { 
+        prefillStart: 'Current Location',
+        prefillLat: location.coords.latitude,
+        prefillLng: location.coords.longitude 
+      });
+    } catch (error) {
+      console.error(error);
+      navigation.navigate('OfferRide');
+    }
+  };
+
+  const getInitials = (name: string) => {
+    if (!name) return 'CR';
+    const parts = name.split(' ');
+    if (parts.length > 1) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return name.substring(0, 2).toUpperCase();
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -63,7 +129,9 @@ export default function HomeScreen() {
         {/* Greeting */}
         <View style={styles.greetSection}>
           <View style={styles.greetRow}>
-            <Text style={styles.greetHeadline}>Hey Anjali</Text>
+            <Text style={styles.greetHeadline}>
+              Hey {profile?.full_name ? profile.full_name.split(' ')[0] : 'Campus Rider'}
+            </Text>
             <Text style={styles.waveEmoji}>👋</Text>
           </View>
           <Text style={styles.greetSub}>Where are you heading today?</Text>
@@ -71,6 +139,22 @@ export default function HomeScreen() {
 
         {/* Action Cards */}
         <View style={styles.actionCards}>
+          {/* Leave Now - Quick Ride */}
+          <TouchableOpacity
+            style={styles.quickLeaveCard}
+            onPress={handleLeaveNow}
+            activeOpacity={0.88}
+          >
+            <View style={styles.quickIconBox}>
+              <Ionicons name="flash-outline" size={28} color={theme.colors.white} />
+            </View>
+            <View style={styles.cardText}>
+              <Text style={styles.quickTitle}>Leave Now</Text>
+              <Text style={styles.quickSub}>Instantly share your current route</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color={theme.colors.white} />
+          </TouchableOpacity>
+
           {/* Find a Ride */}
           <TouchableOpacity
             style={styles.findCard}
@@ -107,17 +191,17 @@ export default function HomeScreen() {
         {/* Quick Stats */}
         <View style={styles.statsCard}>
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>42</Text>
+            <Text style={styles.statValue}>{stats.totalRides}</Text>
             <Text style={styles.statLabel}>Total Rides</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>4.8 ⭐</Text>
+            <Text style={styles.statValue}>{stats.rating} ⭐</Text>
             <Text style={styles.statLabel}>Your Rating</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>₹684</Text>
+            <Text style={styles.statValue}>₹{stats.saved}</Text>
             <Text style={styles.statLabel}>Saved</Text>
           </View>
         </View>
@@ -130,28 +214,40 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {RECENT_RIDES.map((ride) => (
+        {rides.map((ride) => (
           <TouchableOpacity key={ride.id} style={styles.rideCard} activeOpacity={0.85}>
             <View style={styles.rideAvatar}>
-              <Text style={styles.rideAvatarText}>{ride.initials}</Text>
+              <Text style={styles.rideAvatarText}>
+                {getInitials(ride.profiles?.full_name || 'Driver')}
+              </Text>
             </View>
             <View style={styles.rideInfo}>
-              <Text style={styles.rideName}>{ride.name}</Text>
-              <Text style={styles.rideRoute}>{ride.route}</Text>
+              <Text style={styles.rideName}>{ride.profiles?.full_name || 'Driver'}</Text>
+              <Text style={styles.rideRoute} numberOfLines={1}>
+                {ride.origin} → {ride.destination}
+              </Text>
               <View style={styles.rideMetaRow}>
                 <Ionicons name="time-outline" size={12} color={theme.colors.onSurfaceVariant} />
-                <Text style={styles.rideMeta}>{ride.time}</Text>
+                <Text style={styles.rideMeta}>
+                  {new Date(ride.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
               </View>
             </View>
             <View style={styles.rideRight}>
-              <Text style={styles.rideFare}>{ride.fare}</Text>
+              <Text style={styles.rideFare}>₹{ride.price_per_seat}</Text>
               <View style={styles.rideRatingRow}>
                 <Ionicons name="star" size={12} color={theme.colors.primary} />
-                <Text style={styles.rideRating}>{ride.rating}</Text>
+                <Text style={styles.rideRating}>4.8</Text>
               </View>
             </View>
           </TouchableOpacity>
         ))}
+
+        {rides.length === 0 && (
+          <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+            <Text style={{ color: theme.colors.onSurfaceVariant }}>No recent rides found.</Text>
+          </View>
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -236,6 +332,39 @@ const styles = StyleSheet.create({
   actionCards: {
     gap: theme.spacing.m,
     marginBottom: theme.spacing.l,
+  },
+  quickLeaveCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.black,
+    borderRadius: theme.borderRadius.card,
+    padding: theme.spacing.l,
+    gap: theme.spacing.m,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 6,
+  },
+  quickIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quickTitle: {
+    fontFamily: theme.typography.fontFamily,
+    fontSize: 18,
+    fontWeight: '800',
+    color: theme.colors.white,
+    marginBottom: 3,
+  },
+  quickSub: {
+    fontFamily: theme.typography.fontFamily,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
   },
   findCard: {
     flexDirection: 'row',

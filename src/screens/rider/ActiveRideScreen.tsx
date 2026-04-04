@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,18 +8,61 @@ import {
   Switch,
   ScrollView,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { supabase } from '../../services/supabase';
+import * as Location from 'expo-location';
 
-type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'ActiveRide'>;
-};
+type Props = NativeStackScreenProps<RootStackParamList, 'ActiveRide'>;
 
-export default function ActiveRideScreen({ navigation }: Props) {
+export default function ActiveRideScreen({ navigation, route }: Props) {
+  const rideId = route.params?.rideId;
   const [shareLocation, setShareLocation] = useState(true);
+  const [ride, setRide] = useState<any>(null);
+  const [passenger, setPassenger] = useState<any>(null);
+
+  useEffect(() => {
+    let locationSubscription: any = null;
+
+    const startTracking = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      locationSubscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        async (location) => {
+          if (shareLocation && rideId) {
+            // Update Supabase with current lat/lng
+            await supabase
+              .from('rides')
+              .update({ 
+                driver_lat: location.coords.latitude, 
+                driver_lng: location.coords.longitude 
+              })
+              .eq('id', rideId);
+          }
+        }
+      );
+    };
+
+    startTracking();
+    return () => locationSubscription?.remove();
+  }, [shareLocation]);
+
+  const handleCompleteRide = async () => {
+    // Logic to update status and navigate
+    Alert.alert('Success', 'Ride completed!', [
+      { text: 'OK', onPress: () => navigation.navigate('Payment') }
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -76,6 +119,12 @@ export default function ActiveRideScreen({ navigation }: Props) {
               <Text style={styles.verifiedText}>ID Verified · Passenger</Text>
             </View>
           </View>
+          <TouchableOpacity 
+            style={styles.msgButton}
+            onPress={() => Alert.alert('Chat', 'Opening chat...')}
+          >
+            <Ionicons name="chatbubble-outline" size={20} color={theme.colors.black} />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.callButton}>
             <Ionicons name="call-outline" size={20} color={theme.colors.black} />
           </TouchableOpacity>
@@ -134,7 +183,7 @@ export default function ActiveRideScreen({ navigation }: Props) {
         {/* Complete CTA */}
         <TouchableOpacity
           style={styles.completeButton}
-          onPress={() => navigation.navigate('Payment')}
+          onPress={handleCompleteRide}
           activeOpacity={0.88}
         >
           <Ionicons name="flag" size={20} color={theme.colors.onPrimary} />
@@ -292,6 +341,15 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
   },
   callButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.surfaceContainerHigh,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  msgButton: {
     width: 44,
     height: 44,
     borderRadius: 22,

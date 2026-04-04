@@ -11,58 +11,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 
+import { useAuth } from '../../services/AuthContext';
+import { supabase } from '../../services/supabase';
+import { Alert, ActivityIndicator } from 'react-native';
+
 type Tab = 'passenger' | 'rider';
-
-const PASSENGER_RIDES = [
-  {
-    id: 'p1',
-    date: 'Today, 9:42 AM',
-    from: 'Main Gate',
-    to: 'Engineering Block',
-    fare: 31,
-    rating: 5,
-    riderName: 'Arjun Verma',
-  },
-  {
-    id: 'p2',
-    date: 'Yesterday, 5:10 PM',
-    from: 'Library Gate',
-    to: 'Hostel 3',
-    fare: 22,
-    rating: 4,
-    riderName: 'Kavya Nair',
-  },
-  {
-    id: 'p3',
-    date: '28 Mar, 8:30 AM',
-    from: 'Admin Block',
-    to: 'Science Building',
-    fare: 18,
-    rating: 4,
-    riderName: 'Dev Sharma',
-  },
-];
-
-const RIDER_RIDES = [
-  {
-    id: 'r1',
-    date: 'Yesterday, 9:00 AM',
-    from: 'Main Gate',
-    to: 'Engineering Block',
-    fare: 31,
-    rating: 5,
-    passengerName: 'Priya Mehta',
-  },
-  {
-    id: 'r2',
-    date: '27 Mar, 3:15 PM',
-    from: 'Hostel 3',
-    to: 'Canteen',
-    fare: 12,
-    rating: 4,
-    passengerName: 'Sneha Joshi',
-  },
-];
 
 function StarRow({ count }: { count: number }) {
   return (
@@ -100,11 +53,68 @@ function EmptyState({ tab }: { tab: Tab }) {
 
 export default function MyRidesScreen() {
   const navigation = useNavigation();
+  const { session } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('passenger');
+  const [rides, setRides] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const data = activeTab === 'passenger' ? PASSENGER_RIDES : RIDER_RIDES;
+  React.useEffect(() => {
+    const fetchMyRides = async () => {
+      if (!session?.user?.id) return;
+      setLoading(true);
 
-  const renderPassengerRide = ({ item }: { item: typeof PASSENGER_RIDES[0] }) => (
+      try {
+        if (activeTab === 'passenger') {
+          // Fetch rides where user is a passenger and request was accepted
+          const { data, error } = await supabase
+            .from('ride_requests')
+            .select('*, rides(*, profiles(full_name))')
+            .eq('passenger_id', session.user.id)
+            .eq('status', 'accepted')
+            .order('created_at', { ascending: false });
+
+          if (data) {
+            setRides(data.map(req => ({
+              id: req.id,
+              date: new Date(req.rides.departure_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+              from: req.rides.origin,
+              to: req.rides.destination,
+              fare: req.rides.price_per_seat,
+              rating: 5,
+              name: req.rides.profiles.full_name,
+            })));
+          }
+        } else {
+          // Fetch rides where user is the driver
+          const { data, error } = await supabase
+            .from('rides')
+            .select('*, ride_requests(count)')
+            .eq('driver_id', session.user.id)
+            .order('created_at', { ascending: false });
+
+          if (data) {
+            setRides(data.map(ride => ({
+              id: ride.id,
+              date: new Date(ride.departure_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+              from: ride.origin,
+              to: ride.destination,
+              fare: ride.price_per_seat,
+              rating: 5,
+              name: `${ride.ride_requests?.[0]?.count || 0} passengers`,
+            })));
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching my rides:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMyRides();
+  }, [session, activeTab]);
+
+  const renderRide = ({ item }: { item: any }) => (
     <View style={styles.rideCard}>
       <View style={styles.rideCardTop}>
         <View style={styles.routeLines}>
@@ -127,39 +137,8 @@ export default function MyRidesScreen() {
           <Text style={styles.metaText}>{item.date}</Text>
         </View>
         <View style={styles.metaGroup}>
-          <Ionicons name="person-outline" size={13} color={theme.colors.onSurfaceVariant} />
-          <Text style={styles.metaText}>{item.riderName}</Text>
-        </View>
-        <StarRow count={item.rating} />
-      </View>
-    </View>
-  );
-
-  const renderRiderRide = ({ item }: { item: typeof RIDER_RIDES[0] }) => (
-    <View style={styles.rideCard}>
-      <View style={styles.rideCardTop}>
-        <View style={styles.routeLines}>
-          <View style={styles.pinDot} />
-          <View style={styles.routeConnector} />
-          <View style={styles.pinSquare} />
-        </View>
-        <View style={styles.rideRouteGroup}>
-          <Text style={styles.routeText}>{item.from}</Text>
-          <View style={styles.routeSpacer} />
-          <Text style={styles.routeText}>{item.to}</Text>
-        </View>
-        <View style={styles.fareBox}>
-          <Text style={styles.fareAmount}>₹{item.fare}</Text>
-        </View>
-      </View>
-      <View style={styles.rideCardBottom}>
-        <View style={styles.metaGroup}>
-          <Ionicons name="time-outline" size={13} color={theme.colors.onSurfaceVariant} />
-          <Text style={styles.metaText}>{item.date}</Text>
-        </View>
-        <View style={styles.metaGroup}>
-          <Ionicons name="people-outline" size={13} color={theme.colors.onSurfaceVariant} />
-          <Text style={styles.metaText}>{item.passengerName}</Text>
+          <Ionicons name={activeTab === 'passenger' ? "person-outline" : "people-outline"} size={13} color={theme.colors.onSurfaceVariant} />
+          <Text style={styles.metaText}>{item.name}</Text>
         </View>
         <StarRow count={item.rating} />
       </View>
@@ -175,7 +154,7 @@ export default function MyRidesScreen() {
           <Text style={styles.headerTitle}>My Rides</Text>
           <View style={styles.headerStats}>
             <Ionicons name="bicycle-outline" size={14} color={theme.colors.onSurfaceVariant} />
-            <Text style={styles.headerStatText}>42 total rides</Text>
+            <Text style={styles.headerStatText}>{rides.length} rides</Text>
           </View>
         </View>
 
@@ -190,25 +169,24 @@ export default function MyRidesScreen() {
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
                 {tab === 'passenger' ? 'As Passenger' : 'As Rider'}
               </Text>
-              {/* Count badge */}
-              <View style={[styles.countBadge, activeTab === tab && styles.countBadgeActive]}>
-                <Text style={[styles.countText, activeTab === tab && styles.countTextActive]}>
-                  {tab === 'passenger' ? PASSENGER_RIDES.length : RIDER_RIDES.length}
-                </Text>
-              </View>
+              {/* Count badge removed for simplicity or updated */}
             </TouchableOpacity>
           ))}
         </View>
 
         {/* List */}
-        <FlatList
-          data={data as any[]}
-          keyExtractor={(item) => item.id}
-          renderItem={activeTab === 'passenger' ? renderPassengerRide as any : renderRiderRide as any}
-          contentContainerStyle={{ gap: theme.spacing.m, paddingBottom: 24 }}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<EmptyState tab={activeTab} />}
-        />
+        {loading ? (
+          <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
+        ) : (
+          <FlatList
+            data={rides}
+            keyExtractor={(item) => item.id}
+            renderItem={renderRide}
+            contentContainerStyle={{ gap: theme.spacing.m, paddingBottom: 24 }}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={<EmptyState tab={activeTab} />}
+          />
+        )}
 
       </View>
     </SafeAreaView>

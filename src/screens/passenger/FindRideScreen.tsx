@@ -129,7 +129,7 @@ export default function FindRideScreen({ navigation }: Props) {
           {/* Search Button */}
           <TouchableOpacity
             style={styles.searchButton}
-            onPress={() => navigation.navigate('RequestingRide')}
+            onPress={() => navigation.navigate('RideList', { pickup, destination })}
             activeOpacity={0.88}
           >
             <Ionicons name="search-outline" size={20} color={theme.colors.onPrimary} />

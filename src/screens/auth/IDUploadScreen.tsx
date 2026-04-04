@@ -1,15 +1,74 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity } from 'react-native';
 import { theme } from '../../theme/theme';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../services/AuthContext';
+import { Alert, ActivityIndicator, Image } from 'react-native';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'IDUpload'>;
 };
 
 export default function IDUploadScreen({ navigation }: Props) {
+  const { session } = useAuth();
+  const [image, setImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const pickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      Alert.alert('Permission needed', 'You need to allow camera roll access to upload your ID.');
+      return;
+    }
+
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setImage(result.assets[0].uri);
+    }
+  };
+
+  const uploadID = async () => {
+    if (!image) {
+      Alert.alert('No Image', 'Please capture or select an image of your ID first.');
+      return;
+    }
+    if (!session?.user?.id) {
+      Alert.alert('Error', 'User not authenticated. Please log in again.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(image);
+      const blob = await response.blob();
+      
+      const fileExt = image.split('.').pop() || 'jpg';
+      const fileName = `${session.user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${session.user.id}/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('id_documents')
+        .upload(filePath, blob);
+
+      if (error) throw error;
+      
+      navigation.navigate('PendingApproval');
+    } catch (error: any) {
+      Alert.alert('Upload Failed', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
         
@@ -20,20 +79,31 @@ export default function IDUploadScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.content}>
-          <TouchableOpacity style={styles.uploadCard}>
-            <View style={styles.iconContainer}>
-              <Ionicons name="camera-outline" size={40} color={theme.colors.onSurfaceVariant} />
-            </View>
-            <Text style={styles.uploadTitle}>Tap to scan Student ID</Text>
-            <Text style={styles.uploadSubtitle}>Make sure your name and picture are clearly visible</Text>
+          <TouchableOpacity style={[styles.uploadCard, image && styles.uploadCardFilled]} onPress={pickImage}>
+            {image ? (
+              <Image source={{ uri: image }} style={styles.previewImage} />
+            ) : (
+              <>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="camera-outline" size={40} color={theme.colors.onSurfaceVariant} />
+                </View>
+                <Text style={styles.uploadTitle}>Tap to scan Student ID</Text>
+                <Text style={styles.uploadSubtitle}>Make sure your name and picture are clearly visible</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity 
-          style={styles.primaryButton}
-          onPress={() => navigation.navigate('PendingApproval')}
+          style={[styles.primaryButton, (!image || loading) && { opacity: 0.7 }]}
+          onPress={uploadID}
+          disabled={!image || loading}
         >
-          <Text style={styles.buttonText}>Submit ID</Text>
+          {loading ? (
+            <ActivityIndicator color={theme.colors.onPrimary} />
+          ) : (
+            <Text style={styles.buttonText}>Submit ID</Text>
+          )}
         </TouchableOpacity>
       </View>
         
@@ -81,6 +151,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderStyle: 'dashed',
     borderColor: theme.colors.outlineVariant,
+    overflow: 'hidden',
+  },
+  uploadCardFilled: {
+    padding: 0,
+    borderWidth: 0,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
   iconContainer: {
     width: 80,

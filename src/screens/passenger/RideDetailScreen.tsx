@@ -11,9 +11,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { RouteProp } from '@react-navigation/native';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../services/AuthContext';
+import { useState } from 'react';
+import { ActivityIndicator, Alert } from 'react-native';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'RideDetail'>;
+  route: RouteProp<RootStackParamList, 'RideDetail'>;
 };
 
 function StarRow({ rating }: { rating: number }) {
@@ -34,7 +40,38 @@ function StarRow({ rating }: { rating: number }) {
   );
 }
 
-export default function RideDetailScreen({ navigation }: Props) {
+
+const getInitials = (name: string) => {
+  if (!name) return 'CR';
+  const parts = name.split(' ');
+  if (parts.length > 1) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.substring(0, 2).toUpperCase();
+};
+
+export default function RideDetailScreen({ navigation, route }: Props) {
+  const { session } = useAuth();
+  const { ride } = route.params;
+  const [loading, setLoading] = useState(false);
+
+  const handleBookRide = async () => {
+    if (!session?.user?.id) return;
+    setLoading(true);
+
+    const { error } = await supabase.from('bookings').insert({
+      ride_id: ride.id,
+      passenger_id: session.user.id,
+      seats_booked: 1,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Booking Failed', error.message);
+    } else {
+      navigation.navigate('RequestSent');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -51,7 +88,7 @@ export default function RideDetailScreen({ navigation }: Props) {
         <View style={styles.riderCard}>
           <View style={styles.avatarWrapper}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>AV</Text>
+              <Text style={styles.avatarText}>{getInitials(ride.profiles?.full_name)}</Text>
             </View>
             {/* Verification badge */}
             <View style={styles.verifiedBadge}>
@@ -59,8 +96,8 @@ export default function RideDetailScreen({ navigation }: Props) {
             </View>
           </View>
           <View style={styles.riderInfo}>
-            <Text style={styles.riderName}>Arjun Verma</Text>
-            <StarRow rating={4.9} />
+            <Text style={styles.riderName}>{ride.profiles?.full_name || 'Driver'}</Text>
+            <StarRow rating={ride.profiles?.rating || 4.8} />
             <Text style={styles.riderMeta}>42 rides · ID Verified</Text>
           </View>
         </View>
@@ -72,7 +109,7 @@ export default function RideDetailScreen({ navigation }: Props) {
             <View style={styles.pinDot} />
             <View>
               <Text style={styles.routeMeta}>FROM</Text>
-              <Text style={styles.routeName}>Main Gate, Campus</Text>
+              <Text style={styles.routeName}>{ride.origin}</Text>
             </View>
           </View>
           <View style={styles.routeConnector} />
@@ -80,7 +117,7 @@ export default function RideDetailScreen({ navigation }: Props) {
             <View style={styles.pinSquare} />
             <View>
               <Text style={styles.routeMeta}>TO</Text>
-              <Text style={styles.routeName}>Engineering Block</Text>
+              <Text style={styles.routeName}>{ride.destination}</Text>
             </View>
           </View>
         </View>
@@ -89,22 +126,26 @@ export default function RideDetailScreen({ navigation }: Props) {
         <View style={styles.infoGrid}>
           <View style={styles.infoBox}>
             <Ionicons name="calendar-outline" size={20} color={theme.colors.onSurfaceVariant} style={{ marginBottom: 6 }} />
-            <Text style={styles.infoValue}>Today</Text>
+            <Text style={styles.infoValue}>
+              {new Date(ride.departure_time).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+            </Text>
             <Text style={styles.infoLabel}>Date</Text>
           </View>
           <View style={styles.infoBox}>
             <Ionicons name="time-outline" size={20} color={theme.colors.onSurfaceVariant} style={{ marginBottom: 6 }} />
-            <Text style={styles.infoValue}>9:30 AM</Text>
+            <Text style={styles.infoValue}>
+              {new Date(ride.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
             <Text style={styles.infoLabel}>Departure</Text>
           </View>
           <View style={styles.infoBox}>
             <Ionicons name="person-outline" size={20} color={theme.colors.onSurfaceVariant} style={{ marginBottom: 6 }} />
-            <Text style={styles.infoValue}>1 seat</Text>
+            <Text style={styles.infoValue}>{ride.available_seats} seat{ride.available_seats !== 1 ? 's' : ''}</Text>
             <Text style={styles.infoLabel}>Available</Text>
           </View>
           <View style={styles.infoBox}>
             <Ionicons name="cash-outline" size={20} color={theme.colors.onSurfaceVariant} style={{ marginBottom: 6 }} />
-            <Text style={styles.infoValue}>₹31</Text>
+            <Text style={styles.infoValue}>₹{ride.price_per_seat}</Text>
             <Text style={styles.infoLabel}>Fare</Text>
           </View>
         </View>
@@ -135,11 +176,18 @@ export default function RideDetailScreen({ navigation }: Props) {
 
         {/* Send Request */}
         <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => navigation.navigate('RequestSent')}
+          style={[styles.primaryButton, loading && { opacity: 0.7 }]}
+          onPress={handleBookRide}
+          disabled={loading}
         >
-          <Ionicons name="send-outline" size={18} color={theme.colors.onPrimary} style={{ marginRight: 8 }} />
-          <Text style={styles.buttonText}>Send Ride Request</Text>
+          {loading ? (
+            <ActivityIndicator color={theme.colors.onPrimary} />
+          ) : (
+            <>
+              <Ionicons name="send-outline" size={18} color={theme.colors.onPrimary} style={{ marginRight: 8 }} />
+              <Text style={styles.buttonText}>Send Ride Request</Text>
+            </>
+          )}
         </TouchableOpacity>
 
       </ScrollView>

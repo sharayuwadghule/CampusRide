@@ -8,14 +8,47 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../services/AuthContext';
+import { supabase } from '../../services/supabase';
+import { useState } from 'react';
+import { ActivityIndicator, Alert } from 'react-native';
 
-type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'FarePreview'>;
-};
+type Props = NativeStackScreenProps<RootStackParamList, 'FarePreview'>;
 
-export default function FarePreviewScreen({ navigation }: Props) {
+export default function FarePreviewScreen({ navigation, route }: Props) {
+  const { startLocation, destination, date, time, seats, genderPref } = route.params;
+  const { session } = useAuth();
+  const [loading, setLoading] = useState(false);
+
+  const handlePublishRide = async () => {
+    if (!session?.user?.id) {
+      Alert.alert('Error', 'User not logged in!');
+      return;
+    }
+    setLoading(true);
+
+    const { error } = await supabase.from('rides').insert({
+      driver_id: session.user.id,
+      origin: startLocation,
+      destination: destination,
+      available_seats: seats,
+      price_per_seat: 31,
+      departure_time: new Date().toISOString(),
+      vehicle: 'Honda Activa', // Default/placeholder for now
+      status: 'waiting'
+    });
+
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Failed to publish', error.message);
+    } else {
+      navigation.replace('RideRequests');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -40,7 +73,7 @@ export default function FarePreviewScreen({ navigation }: Props) {
             <View style={styles.pinDot} />
             <View style={styles.routeTextGroup}>
               <Text style={styles.routeMeta}>FROM</Text>
-              <Text style={styles.routeName}>Main Gate, Campus</Text>
+              <Text style={styles.routeName}>{startLocation}</Text>
             </View>
           </View>
 
@@ -51,7 +84,7 @@ export default function FarePreviewScreen({ navigation }: Props) {
             <View style={styles.pinSquare} />
             <View style={styles.routeTextGroup}>
               <Text style={styles.routeMeta}>TO</Text>
-              <Text style={styles.routeName}>Engineering Block</Text>
+              <Text style={styles.routeName}>{destination}</Text>
             </View>
           </View>
         </View>
@@ -91,7 +124,7 @@ export default function FarePreviewScreen({ navigation }: Props) {
               color={theme.colors.onSurfaceVariant}
               style={{ marginBottom: 6 }}
             />
-            <Text style={styles.statValue}>1 seat</Text>
+            <Text style={styles.statValue}>{seats} seat{seats > 1 ? 's' : ''}</Text>
             <Text style={styles.statLabel}>Capacity</Text>
           </View>
         </View>
@@ -132,16 +165,23 @@ export default function FarePreviewScreen({ navigation }: Props) {
 
         {/* Publish Button */}
         <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => navigation.navigate('RideRequests')}
+          style={[styles.primaryButton, loading && { opacity: 0.7 }]}
+          onPress={handlePublishRide}
+          disabled={loading}
         >
-          <Ionicons
-            name="checkmark-circle-outline"
-            size={20}
-            color={theme.colors.onPrimary}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={styles.buttonText}>Publish Ride</Text>
+          {loading ? (
+            <ActivityIndicator color={theme.colors.onPrimary} />
+          ) : (
+            <>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={20}
+                color={theme.colors.onPrimary}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.buttonText}>Publish Ride</Text>
+            </>
+          )}
         </TouchableOpacity>
 
       </View>

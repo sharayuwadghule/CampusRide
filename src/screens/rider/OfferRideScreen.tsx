@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
@@ -32,6 +33,21 @@ export default function OfferRideScreen({ navigation }: Props) {
   const [genderPref, setGenderPref] = useState('Any');
   const [startFocused, setStartFocused] = useState(false);
   const [destFocused, setDestFocused] = useState(false);
+
+  const handleCalculateFare = () => {
+    if (!startLocation || !destination || !date || !time) {
+      Alert.alert('Incomplete Route', 'Please ensure your start, destination, date, and time are filled out.');
+      return;
+    }
+    navigation.navigate('FarePreview', {
+      startLocation,
+      destination,
+      date,
+      time,
+      seats,
+      genderPref,
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -101,12 +117,24 @@ export default function OfferRideScreen({ navigation }: Props) {
             <TouchableOpacity style={styles.halfCard} activeOpacity={0.8}>
               <Ionicons name="calendar-outline" size={20} color={theme.colors.onSurfaceVariant} />
               <Text style={styles.halfCardLabel}>DATE</Text>
-              <Text style={styles.halfCardValue}>{date || 'Pick Date'}</Text>
+              <TextInput
+                style={styles.halfCardValue}
+                placeholder="DD/MM/YYYY"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+                value={date}
+                onChangeText={setDate}
+              />
             </TouchableOpacity>
             <TouchableOpacity style={styles.halfCard} activeOpacity={0.8}>
               <Ionicons name="time-outline" size={20} color={theme.colors.onSurfaceVariant} />
               <Text style={styles.halfCardLabel}>TIME</Text>
-              <Text style={styles.halfCardValue}>{time || 'Pick Time'}</Text>
+              <TextInput
+                style={styles.halfCardValue}
+                placeholder="HH:MM AM"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+                value={time}
+                onChangeText={setTime}
+              />
             </TouchableOpacity>
           </View>
 
@@ -164,7 +192,7 @@ export default function OfferRideScreen({ navigation }: Props) {
           {/* CTA */}
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => navigation.navigate('FarePreview')}
+            onPress={handleCalculateFare}
             activeOpacity={0.88}
           >
             <Ionicons name="cash-outline" size={20} color={theme.colors.onPrimary} />
