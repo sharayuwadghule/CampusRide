@@ -2,6 +2,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { useFonts, Inter_400Regular, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import AppNavigator from './src/navigation/AppNavigator';
+import { AuthProvider } from './src/services/AuthContext';
 import { View, ActivityIndicator } from 'react-native';
 
 export default function App() {
@@ -21,8 +22,10 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <AppNavigator />
-    </NavigationContainer>
+    <AuthProvider>
+      <NavigationContainer>
+        <AppNavigator />
+      </NavigationContainer>
+    </AuthProvider>
   );
 }

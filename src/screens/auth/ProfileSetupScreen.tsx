@@ -15,6 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../services/AuthContext';
+import { supabase } from '../../services/supabase';
+import { Alert, ActivityIndicator } from 'react-native';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ProfileSetup'>;
@@ -23,12 +26,41 @@ type Props = {
 type RoleType = 'passenger' | 'rider' | 'both';
 
 export default function ProfileSetupScreen({ navigation }: Props) {
+  const { session } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [college, setCollege] = useState('');
   const [selectedRole, setSelectedRole] = useState<RoleType>('passenger');
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSaveProfile = async () => {
+    if (!firstName || !lastName || !studentId || !college) {
+      Alert.alert('Missing Fields', 'Please fill out all the fields.');
+      return;
+    }
+    if (!session?.user?.id) {
+      Alert.alert('Error', 'No authenticated user found. Please restart the app.');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.from('profiles').upsert({
+      id: session.user.id,
+      full_name: `${firstName} ${lastName}`,
+      college_id: studentId,
+      college_name: college,
+      role: selectedRole,
+    });
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Profile Setup Failed', error.message);
+    } else {
+      navigation.navigate('IDUpload');
+    }
+  };
 
   const ROLES: { key: RoleType; label: string; icon: any; sub: string }[] = [
     { key: 'passenger', label: 'Passenger', icon: 'person-outline', sub: 'Book rides to campus' },
@@ -150,12 +182,19 @@ export default function ProfileSetupScreen({ navigation }: Props) {
 
           {/* CTA */}
           <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => navigation.navigate('IDUpload')}
+            style={[styles.primaryButton, loading && { opacity: 0.7 }]}
+            onPress={handleSaveProfile}
             activeOpacity={0.88}
+            disabled={loading}
           >
-            <Text style={styles.buttonText}>Continue to ID Upload</Text>
-            <Ionicons name="arrow-forward" size={20} color={theme.colors.onPrimary} />
+            {loading ? (
+              <ActivityIndicator color={theme.colors.onPrimary} />
+            ) : (
+              <>
+                <Text style={styles.buttonText}>Continue to ID Upload</Text>
+                <Ionicons name="arrow-forward" size={20} color={theme.colors.onPrimary} />
+              </>
+            )}
           </TouchableOpacity>
 
           <Text style={styles.disclaimer}>

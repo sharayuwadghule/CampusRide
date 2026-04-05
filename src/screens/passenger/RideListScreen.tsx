@@ -10,47 +10,24 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { supabase } from '../../services/supabase';
+import { useState, useEffect } from 'react';
+import MapSelectionView from '../../components/maps/MapSelectionView';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'RideList'>;
+  route: RouteProp<RootStackParamList, 'RideList'>;
 };
 
-const MOCK_RIDES = [
-  {
-    id: '1',
-    riderName: 'Arjun Verma',
-    initials: 'AV',
-    rating: 4.9,
-    vehicle: 'Honda Activa',
-    vehicleNo: 'MH 12 AB 3456',
-    departureTime: 'Today, 9:30 AM',
-    seats: 1,
-    fare: 31,
-  },
-  {
-    id: '2',
-    riderName: 'Kavya Nair',
-    initials: 'KN',
-    rating: 4.6,
-    vehicle: 'TVS Jupiter',
-    vehicleNo: 'KA 05 CD 7890',
-    departureTime: 'Today, 9:50 AM',
-    seats: 2,
-    fare: 25,
-  },
-  {
-    id: '3',
-    riderName: 'Dev Sharma',
-    initials: 'DS',
-    rating: 4.3,
-    vehicle: 'Bajaj Pulsar',
-    vehicleNo: 'DL 3C EF 1234',
-    departureTime: 'Today, 10:15 AM',
-    seats: 1,
-    fare: 35,
-  },
-];
+// Replace MOCK_RIDES with local state
+const getInitials = (name: string) => {
+  if (!name) return 'CR';
+  const parts = name.split(' ');
+  if (parts.length > 1) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.substring(0, 2).toUpperCase();
+};
 
 function StarRow({ rating }: { rating: number }) {
   const full = Math.floor(rating);
@@ -70,21 +47,54 @@ function StarRow({ rating }: { rating: number }) {
   );
 }
 
-export default function RideListScreen({ navigation }: Props) {
-  const renderItem = ({ item }: { item: typeof MOCK_RIDES[0] }) => (
+export default function RideListScreen({ navigation, route }: Props) {
+  const { pickup, destination } = route.params;
+  const [rides, setRides] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+
+  useEffect(() => {
+    const searchRides = async () => {
+      setLoading(true);
+      let query = supabase
+        .from('rides')
+        .select(`
+          *,
+          profiles(full_name, rating, avatar_url)
+        `)
+        .eq('status', 'waiting');
+
+      if (pickup) {
+        query = query.ilike('origin', `%${pickup}%`);
+      }
+      if (destination) {
+        query = query.ilike('destination', `%${destination}%`);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) {
+        setRides(data);
+      }
+      setLoading(false);
+    };
+
+    searchRides();
+  }, [pickup, destination]);
+
+  const renderItem = ({ item }: { item: any }) => (
     <View style={styles.rideCard}>
 
       {/* Top: Avatar + rider info + fare */}
       <View style={styles.cardTop}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{item.initials}</Text>
+          <Text style={styles.avatarText}>{getInitials(item.profiles?.full_name)}</Text>
         </View>
         <View style={styles.riderInfo}>
-          <Text style={styles.riderName}>{item.riderName}</Text>
-          <StarRow rating={item.rating} />
+          <Text style={styles.riderName}>{item.profiles?.full_name || 'Driver'}</Text>
+          <StarRow rating={item.profiles?.rating || 4.8} />
         </View>
         <View style={styles.fareBox}>
-          <Text style={styles.fareAmount}>₹{item.fare}</Text>
+          <Text style={styles.fareAmount}>₹{item.price_per_seat}</Text>
           <Text style={styles.fareLabel}>per seat</Text>
         </View>
       </View>
@@ -100,25 +110,27 @@ export default function RideListScreen({ navigation }: Props) {
         </View>
         <View style={styles.metaItem}>
           <Ionicons name="time-outline" size={15} color={theme.colors.onSurfaceVariant} />
-          <Text style={styles.metaText}>{item.departureTime}</Text>
+          <Text style={styles.metaText}>
+            {new Date(item.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
         </View>
         <View style={styles.metaItem}>
           <Ionicons name="person-outline" size={15} color={theme.colors.onSurfaceVariant} />
-          <Text style={styles.metaText}>{item.seats} seat{item.seats > 1 ? 's' : ''}</Text>
+          <Text style={styles.metaText}>{item.available_seats} seat{item.available_seats > 1 ? 's' : ''}</Text>
         </View>
       </View>
 
-      {/* Vehicle number */}
+      {/* Vehicle info placeholder */}
       <View style={styles.vehicleNumRow}>
         <View style={styles.vehicleNumBadge}>
-          <Text style={styles.vehicleNumText}>{item.vehicleNo}</Text>
+          <Text style={styles.vehicleNumText}>CR VERIFIED VEHICLE</Text>
         </View>
       </View>
 
       {/* View details */}
       <TouchableOpacity
         style={styles.detailsButton}
-        onPress={() => navigation.navigate('RideDetail')}
+        onPress={() => navigation.navigate('RideDetail', { ride: item })}
       >
         <Text style={styles.detailsButtonText}>View Details</Text>
         <Ionicons name="arrow-forward" size={16} color={theme.colors.onPrimary} />
@@ -137,17 +149,45 @@ export default function RideListScreen({ navigation }: Props) {
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>Available Rides</Text>
-            <Text style={styles.headerSub}>Main Gate → Engineering Block</Text>
+            <Text style={styles.headerSub}>
+              {pickup || 'Anywhere'} → {destination || 'Anywhere'}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }} />
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity 
+              style={[styles.toggleBtn, viewMode === 'list' && styles.toggleBtnActive]} 
+              onPress={() => setViewMode('list')}
+            >
+              <Ionicons name="list" size={18} color={viewMode === 'list' ? theme.colors.white : theme.colors.onSurfaceVariant} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.toggleBtn, viewMode === 'map' && styles.toggleBtnActive]} 
+              onPress={() => setViewMode('map')}
+            >
+              <Ionicons name="map-outline" size={18} color={viewMode === 'map' ? theme.colors.white : theme.colors.onSurfaceVariant} />
+            </TouchableOpacity>
           </View>
         </View>
 
-        <FlatList
-          data={MOCK_RIDES}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={{ gap: theme.spacing.m }}
-          showsVerticalScrollIndicator={false}
-        />
+        {loading ? (
+          <Text style={{ textAlign: 'center', marginTop: 24, fontFamily: theme.typography.fontFamily }}>Searching...</Text>
+        ) : rides.length === 0 ? (
+          <Text style={{ textAlign: 'center', marginTop: 24, color: theme.colors.onSurfaceVariant }}>No rides match your route. Try a different search.</Text>
+        ) : viewMode === 'list' ? (
+          <FlatList
+            data={rides}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={{ gap: theme.spacing.m }}
+            showsVerticalScrollIndicator={false}
+          />
+        ) : (
+          <MapSelectionView 
+            rides={rides} 
+            onSelectRide={(ride) => navigation.navigate('RideDetail', { ride })} 
+          />
+        )}
       </View>
     </SafeAreaView>
   );
@@ -187,6 +227,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.onSurfaceVariant,
     marginTop: 2,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surfaceContainerLow,
+    borderRadius: 12,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceContainerHigh,
+  },
+  toggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  toggleBtnActive: {
+    backgroundColor: theme.colors.black,
   },
 
   rideCard: {

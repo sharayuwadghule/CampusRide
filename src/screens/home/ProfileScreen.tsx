@@ -7,12 +7,16 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../services/AuthContext';
+import { Alert, ActivityIndicator } from 'react-native';
+import { supabase } from '../../services/supabase';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -27,8 +31,90 @@ const MENU_ITEMS = [
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavProp>();
+  const { session, signOut } = useAuth();
+  const [profile, setProfile] = React.useState<any>(null);
+  const [stats, setStats] = React.useState({ rating: 4.8, totalRides: 0, saved: 0 });
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const fetchProfileData = async () => {
+      if (!session?.user?.id) return;
+
+      try {
+        // Fetch Profile
+        const { data: prof, error: profError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        if (prof) setProfile(prof);
+
+        // Fetch Ride Stats (Count rides where user is driver or passenger)
+        const { count: riderCount } = await supabase
+          .from('rides')
+          .select('*', { count: 'exact', head: true })
+          .eq('driver_id', session.user.id);
+
+        const { count: passengerCount } = await supabase
+          .from('ride_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('passenger_id', session.user.id)
+          .eq('status', 'accepted');
+
+        setStats(prev => ({
+          ...prev,
+          totalRides: (riderCount || 0) + (passengerCount || 0),
+          saved: (passengerCount || 0) * 25, // Mock saving calculation
+        }));
+
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfileData();
+  }, [session]);
+
+  const handleSignOut = () => {
+    const confirmLogout = () => {
+      signOut().catch((error: any) => {
+        Alert.alert('Error', error.message);
+      });
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out of your session?')) {
+        confirmLogout();
+      }
+    } else {
+      Alert.alert(
+        'Log Out',
+        'Are you sure you want to log out of your session?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: confirmLogout },
+        ]
+      );
+    }
+  };
+
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+  };
 
   const groups = ['ACCOUNT', 'ACTIVITY', 'SAFETY'];
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -42,18 +128,20 @@ export default function ProfileScreen() {
         <View style={styles.heroCard}>
           {/* Avatar */}
           <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>A</Text>
+            <Text style={styles.avatarText}>{getInitials(profile?.full_name)}</Text>
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark" size={10} color={theme.colors.black} />
             </View>
           </View>
-          <Text style={styles.profileName}>Anjali Sharma</Text>
-          <Text style={styles.profileCollege}>Pune Institute of Technology · Year 3</Text>
+          <Text style={styles.profileName}>{profile?.full_name || 'Student Name'}</Text>
+          <Text style={styles.profileCollege}>
+            {profile?.college_name || 'Pune Institute of Technology'} · ID: {profile?.college_id || '---'}
+          </Text>
 
           {/* Stats row */}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>4.8</Text>
+              <Text style={styles.statValue}>{stats.rating}</Text>
               <View style={styles.starsRow}>
                 {[1,2,3,4].map(s => (
                   <Ionicons key={s} name="star" size={10} color={theme.colors.primary} />
@@ -64,12 +152,12 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>42</Text>
+              <Text style={styles.statValue}>{stats.totalRides}</Text>
               <Text style={styles.statLabel}>Total Rides</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>₹684</Text>
+              <Text style={styles.statValue}>₹{stats.saved}</Text>
               <Text style={styles.statLabel}>Saved</Text>
             </View>
           </View>
@@ -149,13 +237,15 @@ export default function ProfileScreen() {
           );
         })}
 
-        {/* Safety Note */}
-        <View style={styles.safetyNote}>
-          <Ionicons name="shield-checkmark" size={16} color={theme.colors.primary} />
-          <Text style={styles.safetyText}>
-            Verified Identity — This rider has completed a background check and verified their University ID and driver's license.
-          </Text>
-        </View>
+        {/* Log Out Button */}
+        <TouchableOpacity
+          style={styles.signOutButton}
+          onPress={handleSignOut}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="log-out-outline" size={20} color={theme.colors.error} />
+          <Text style={styles.signOutText}>Log Out</Text>
+        </TouchableOpacity>
 
       </ScrollView>
     </SafeAreaView>
@@ -425,5 +515,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.onSurfaceVariant,
     lineHeight: 19,
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(186, 26, 26, 0.05)',
+    borderRadius: theme.borderRadius.button,
+    height: 56,
+    gap: 10,
+    marginTop: theme.spacing.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(186, 26, 26, 0.1)',
+  },
+  signOutText: {
+    fontFamily: theme.typography.fontFamily,
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.error,
   },
 });

@@ -3,21 +3,15 @@ import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { theme } from '../../theme/theme';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../services/AuthContext';
+import { supabase } from '../../services/supabase';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Splash'>;
 };
 
-/**
- * SplashScreen — routing logic:
- *  • Simulates checking auth state (replace with real token/context check)
- *  • AUTH_STATE = 'guest'       → Welcome
- *  • AUTH_STATE = 'pending'     → PendingApproval
- *  • AUTH_STATE = 'verified'    → MainTabs (Home via bottom nav)
- */
-const AUTH_STATE: 'guest' | 'pending' | 'verified' = 'guest';
-
 export default function SplashScreen({ navigation }: Props) {
+  const { session, loading } = useAuth();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -37,17 +31,28 @@ export default function SplashScreen({ navigation }: Props) {
       }),
     ]).start();
 
-    const timer = setTimeout(() => {
-      if (AUTH_STATE === 'verified') {
-        navigation.replace('MainTabs');
-      } else if (AUTH_STATE === 'pending') {
-        navigation.replace('PendingApproval');
-      } else {
-        navigation.replace('Welcome');
-      }
-    }, 2400);
-    return () => clearTimeout(timer);
-  }, [navigation]);
+    if (!loading) {
+      const timer = setTimeout(async () => {
+        if (session) {
+          // Check if profile is complete
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profile && profile.full_name) {
+            navigation.replace('MainTabs');
+          } else {
+            navigation.replace('ProfileSetup');
+          }
+        } else {
+          navigation.replace('Welcome');
+        }
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [navigation, session, loading]);
 
   return (
     <View style={styles.container}>
